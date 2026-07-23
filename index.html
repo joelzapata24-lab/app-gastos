@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Gastos">
+  <meta name="theme-color" content="#1a1a18">
+  <title>Gastos Familiares</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32x32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+
+<body>
+
+  <!-- TOAST -->
+  <div class="toast-wrap">
+    <div id="toast" class="toast"></div>
+  </div>
+
+  <!-- AUTH SCREEN -->
+  <div id="auth-screen">
+    <div class="auth-logo">💰</div>
+  <div class="auth-title">Finanzas Personales</div>
+  <div class="auth-sub">Panel de control exclusivo de<br>Joel Zapata</div>
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button class="auth-tab active" onclick="showAuthTab('login')">Ingresar</button>
+        <button class="auth-tab" onclick="showAuthTab('register')">Registrarse</button>
+      </div>
+      <div id="auth-error" class="auth-error"></div>
+      <div id="auth-msg" class="auth-msg"></div>
+
+      <!-- LOGIN -->
+      <div id="login-form">
+        <div class="fg"><label>Email</label><input type="email" id="l-email" placeholder="tu@email.com" autocomplete="email"></div>
+        <div class="fg"><label>Contraseña</label><input type="password" id="l-pass" placeholder="••••••••" autocomplete="current-password"></div>
+        <button class="btn btn-primary" onclick="login()" id="login-btn">Ingresar</button>
+        <p style="text-align:center;font-size:12px;color:var(--text2);margin-top:8px">
+          <a href="#" onclick="forgotPass()" style="color:var(--blue)">¿Olvidaste tu contraseña?</a>
+        </p>
+      </div>
+
+      <!-- REGISTER -->
+      <div id="register-form" style="display:none">
+        <div class="fg"><label>Nombre</label><input type="text" id="r-name" placeholder="Tu nombre" autocomplete="name"></div>
+        <div class="fg"><label>Email</label><input type="email" id="r-email" placeholder="tu@email.com" autocomplete="email"></div>
+        <div class="fg"><label>Contraseña</label><input type="password" id="r-pass" placeholder="Mínimo 6 caracteres" autocomplete="new-password"></div>
+        <button class="btn btn-primary" onclick="register()" id="register-btn">Crear cuenta</button>
+        <p style="text-align:center;font-size:12px;color:var(--text2);margin-top:4px">Las dos personas de la familia crean su cuenta y comparten los gastos automáticamente.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- HEADER (shown when logged in) -->
+  <div class="header" id="app-header">
+    <div class="header-left">
+      <div class="header-title">💰 Gastos</div>
+      <div class="header-user" id="header-user"></div>
+    </div>
+    <div class="header-right">
+      <div class="sync-badge" id="sync-badge">
+        <span class="sync-dot" id="sync-dot"></span>
+        <span id="sync-label">Conectado</span>
+      </div>
+      <button class="logout-btn" onclick="logout()">Salir</button>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="content" id="app-content">
+
+    <!-- HOME -->
+    <div id="p-home" class="panel active">
+      <div class="month-nav">
+        <button class="mnav-btn" onclick="changeMonth(-1)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <polyline points="15,18 9,12 15,6" />
+          </svg>
+        </button>
+        <span class="mnav-title" id="dash-month"></span>
+        <button class="mnav-btn" onclick="changeMonth(1)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <polyline points="9,18 15,12 9,6" />
+          </svg>
+        </button>
+      </div>
+      <div class="realtime-indicator"><span class="rt-dot"></span><span>Sincronización en tiempo real</span></div>
+      <div class="metrics" id="dash-metrics"></div>
+
+      <!-- Gráfico de Evolución -->
+      <div class="card" id="evolution-card">
+        <div class="card-title">Evolución de Gastos (12 meses)</div>
+        <div class="chart-container">
+          <canvas id="evolutionChart"></canvas>
+        </div>
+      </div>
+
+      <!-- 28.05.26 -->
+      <div class="card">
+        <div class="card-title">Por categoría</div>
+        <div class="donut-layout">
+          <div class="donut-layout-chart">
+            <canvas id="donutChart"></canvas>
+          </div>
+          <div class="donut-layout-list">
+            <div id="dash-cats"></div>
+          </div>
+        </div>
+      </div>
+      <!-- 28.05.26 -->
+      <div class="card" id="dash-deudas" style="display:none"></div>
+      <div class="card">
+        <div class="card-title">Últimos gastos</div>
+        <div id="dash-recent"></div>
+      </div>
+    </div>
+
+    <!-- NUEVO GASTO -->
+    <div id="p-nuevo" class="panel">
+      <div class="card">
+        <div class="form-2">
+          <div class="fg"><label>Fecha</label><input type="date" id="f-fecha" onclick="this.showPicker()"></div>
+          <div class="fg"><label>Monto</label>
+            <div style="display:flex;gap:8px">
+              <input type="text" id="f-monto" placeholder="0.00" inputmode="decimal" pattern="[0-9.,]*" style="flex:1">
+              <div style="width:90px">
+                <div class="ms-wrap">
+                  <div class="ms-trigger" id="f-moneda-trigger" onclick="toggleMs('f-moneda-ms', event)">
+                    <span id="f-moneda-label">ARS</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6,9 12,15 18,9"/></svg>
+                  </div>
+                  <input type="hidden" id="f-moneda" value="ARS">
+                  <div class="ms-dropdown" id="f-moneda-ms" style="display:none"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="form-2">
+          <div class="fg"><label>Categoría</label>
+            <div class="ms-wrap">
+              <div class="ms-trigger" id="f-cat-trigger" onclick="toggleMs('f-cat-ms', event)">
+                <span id="f-cat-label">Seleccione</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6,9 12,15 18,9"/></svg>
+              </div>
+              <input type="hidden" id="f-cat" value="">
+              <div class="ms-dropdown" id="f-cat-ms" style="display:none"></div>
+            </div>
+          </div>
+          <div class="fg"><label>¿Quién pagó?</label>
+            <div class="ms-wrap">
+              <div class="ms-trigger" id="f-persona-trigger" onclick="toggleMs('f-persona-ms', event)">
+                <span id="f-persona-label">Seleccione</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6,9 12,15 18,9"/></svg>
+              </div>
+              <input type="hidden" id="f-persona" value="">
+              <div class="ms-dropdown" id="f-persona-ms" style="display:none"></div>
+            </div>
+          </div>
+        </div>
+        <div class="fg"><label>Descripción</label><input type="text" id="f-desc" placeholder="Ej: Supermercado Coto, factura luz..."></div>
+        <div class="fg"><label>Notas (opcional)</label><textarea id="f-notas" placeholder="Detalles adicionales..."></textarea></div>
+        <div class="fg"><label>Comprobante (opcional)</label>
+          <div class="file-input-wrapper">
+            <input type="file" id="f-adjunto" accept="image/*,.pdf" style="display:none">
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('f-adjunto').click()" style="width:100%;margin:0">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17,8 12,3 7,8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              Seleccionar archivo
+            </button>
+          </div>
+          <div id="f-adjunto-preview" style="margin-top:8px;display:none"></div>
+        </div>
+        <button class="btn btn-primary" id="save-btn" onclick="saveGasto()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="20,6 9,17 4,12" />
+          </svg>
+          Guardar gasto
+        </button>
+        <button class="btn" onclick="clearForm()">Limpiar</button>
+      </div>
+    </div>
+
+    <!-- HISTORIAL -->
+    <div id="p-hist" class="panel">
+      <div class="fg">
+        <label>Buscar</label>
+        <input type="text" id="h-busq" placeholder="Buscar por descripción o notas..." oninput="loadHistorial()">
+      </div>
+      <!-- Fila 1: Mes y Categoría -->
+      <div class="filter-2" style="margin-bottom:10px">
+        <div class="fg">
+          <label>Mes</label>
+          <input type="month" id="h-mes">
+        </div>
+        <div class="fg" style="margin:0">
+          <label>Categoría</label>
+          <div class="ms-wrap">
+            <div class="ms-trigger" onclick="toggleMs('ms-cat', event)">
+              <span id="ms-cat-label">Todas</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6,9 12,15 18,9"/></svg>
+            </div>
+            <div class="ms-dropdown" id="ms-cat" style="display:none"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fila 2: Persona y Botón Filtrar -->
+      <div class="filter-2" style="margin-bottom:14px">
+        <div class="fg" style="margin:0">
+          <label>Persona</label>
+          <div class="ms-wrap">
+            <div class="ms-trigger" onclick="toggleMs('ms-per', event)">
+              <span id="ms-per-label">Todos</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6,9 12,15 18,9"/></svg>
+            </div>
+            <div class="ms-dropdown" id="ms-per" style="display:none"></div>
+          </div>
+        </div>
+        <div class="fg" style="margin:0">
+          <label style="visibility:hidden">.</label>
+          <button class="btn btn-primary" style="margin:0;padding:13px 14px;font-size:15px" onclick="loadHistorial()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            Filtrar
+          </button>
+        </div>
+      </div>
+
+      <div id="hist-list"></div>
+    </div>
+
+    <!-- REPORTE -->
+    <div id="p-rep" class="panel">
+      <div class="card">
+        <div class="fg"><label>Período</label>
+          <select id="r-tipo" onchange="togglePeriodo()">
+            <option value="per">Mes Personalizado</option>
+            <option value="mes">Mes completo</option>
+            <option value="comp">Comparativa (Mes vs Mes)</option>
+          </select>
+        </div>
+        <div id="rg-mes" style="display:none">
+          <div class="fg"><label>Mes</label><input type="month" id="r-mes"></div>
+        </div>
+        <div id="rg-per">
+          <div class="form-2">
+            <div class="fg"><label>Desde</label><input type="date" id="r-desde"></div>
+            <div class="fg"><label>Hasta</label><input type="date" id="r-hasta"></div>
+          </div>
+        </div>
+          <div class="row" id="rg-comp" style="display:none; gap:10px;">
+            <div class="fg" style="flex:1">
+              <label>MES 1</label>
+              <input type="month" id="r-mes1">
+            </div>
+            <div class="fg" style="flex:1">
+              <label>MES 2</label>
+              <input type="month" id="r-mes2">
+            </div>
+          </div>
+        <div class="fg" style="margin-top:4px">
+          <label>Categorías</label>
+          <div class="ms-wrap">
+            <div class="ms-trigger" onclick="toggleMs('ms-rep-cat', event)">
+              <span id="ms-rep-cat-label">Todas</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6,9 12,15 18,9"/></svg>
+            </div>
+            <div class="ms-dropdown" id="ms-rep-cat" style="display:none"></div>
+          </div>
+        </div>
+        <div style="display:flex; gap:16px; margin-bottom:12px; margin-top:-4px">
+          <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text2); cursor:pointer;">
+            <input type="checkbox" id="r-inc-fijos" checked style="width:16px; height:16px; accent-color:var(--primary)"> Incluir Fijos
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text2); cursor:pointer;">
+            <input type="checkbox" id="r-inc-cuotas" checked style="width:16px; height:16px; accent-color:var(--primary)"> Incluir Cuotas
+          </label>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <button class="btn btn-sm" style="flex:1" onclick="previewReporte()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            Vista previa
+          </button>
+          <button class="btn btn-green btn-sm" style="flex:1" onclick="exportarExcel()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14,2 14,8 20,8" />
+            </svg>
+            Excel
+          </button>
+          <button class="btn btn-blue btn-sm" style="flex:1" onclick="exportarPDF()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14,2 14,8 20,8" />
+            </svg>
+            PDF
+          </button>
+        </div>
+        <div id="rep-highlights" class="metrics" style="display:none; margin-top:10px;"></div>
+        <div class="chart-container" id="rep-chart-container" style="display:none; height:160px; margin-top:10px; margin-bottom:16px;">
+          <canvas id="repChart"></canvas>
+        </div>
+        <div id="rep-preview"></div>
+      </div>
+    </div>
+
+    <!-- DEUDAS -->
+    <div id="p-deu" class="panel">
+      <div id="deu-resumen"></div>
+      <div class="card" id="deu-grafico-card" style="display:none">
+        <div class="card-title">Cuotas próximos 12 meses</div>
+        <div id="deu-grafico"></div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Compras en cuotas</span>
+          <button class="btn btn-primary btn-sm" onclick="showFormDeuda()" style="margin:0">+ Nueva</button>
+        </div>
+        <div id="deu-lista"></div>
+      </div>
+      <div class="card" id="deu-form" style="display:none">
+        <div class="card-title">Nueva compra en cuotas</div>
+        <div class="fg"><label>Descripción</label><input type="text" id="d-desc" placeholder="Ej: Smart TV Samsung"></div>
+        <div class="form-2">
+          <div class="fg"><label>Monto total</label><input type="text" id="d-monto" placeholder="0.00" inputmode="decimal" pattern="[0-9.,]*"></div>
+          <div class="fg"><label>Moneda</label>
+            <select id="d-moneda">
+              <option value="ARS">$ Pesos</option>
+              <option value="USD">U$D Dólares</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-2">
+          <div class="fg"><label>Cantidad de cuotas</label><input type="number" id="d-cuotas" placeholder="12" min="1" max="60" inputmode="numeric"></div>
+          <div class="fg"><label>Mes inicio</label><input type="month" id="d-inicio"></div>
+        </div>
+        <div class="form-2">
+          <div class="fg"><label>Tarjeta</label>
+            <select id="d-tarjeta">
+              <option value="Visa">Visa</option>
+              <option value="Mastercard">Mastercard</option>
+              <option value="Amex">Amex</option>
+            </select>
+          </div>
+          <div class="fg"><label>¿Quién compró?</label>
+            <select id="d-persona"></select>
+          </div>
+        </div>
+        <div class="fg"><label>Notas (opcional)</label><input type="text" id="d-notas" placeholder="Ej: Cuotas sin interés"></div>
+        <button class="btn btn-primary" id="d-save-btn" onclick="saveDeuda()">Guardar</button>
+        <button class="btn" onclick="hideFormDeuda()">Cancelar</button>
+      </div>
+    </div>
+
+    <!-- GASTOS RECURRENTES -->
+    <div id="p-rec" class="panel">
+      <div class="card">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Gastos Fijos / Mensuales</span>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-green btn-sm" id="btn-cargar-todo" onclick="cargarTodosRecurrentes()" style="margin:0">Cargar todo</button>
+            <button class="btn btn-primary btn-sm" onclick="showFormRec()" style="margin:0">+ Nuevo</button>
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Configurá gastos que se repiten siempre (Netflix, Gym, etc.) y cargalos con un toque cada mes.</p>
+        <div id="rec-lista"></div>
+      </div>
+      <div class="card" id="rec-form" style="display:none">
+        <div class="card-title">Nuevo Gasto Fijo</div>
+        <div class="fg"><label>Descripción</label><input type="text" id="rf-desc" placeholder="Ej: Netflix, Expensas..."></div>
+        <div class="form-2">
+          <div class="fg"><label>Monto $</label><input type="text" id="rf-monto" placeholder="0.00" inputmode="decimal" pattern="[0-9.,]*"></div>
+          <div class="fg"><label>Moneda</label>
+            <select id="rf-moneda">
+              <option value="ARS">$ Pesos</option>
+              <option value="USD">U$D Dólares</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-2">
+          <div class="fg"><label>¿Quién paga siempre?</label><select id="rf-persona"></select></div>
+          <div class="fg"><label>Categoría</label><select id="rf-cat"></select></div>
+        </div>
+        <button class="btn btn-primary" id="rf-save-btn" onclick="saveRecurrente()">Guardar</button>
+        <button class="btn" onclick="hideFormRec()">Cancelar</button>
+      </div>
+    </div>
+
+    <!-- CONFIG -->
+    <div id="p-cfg" class="panel">
+      <div class="section-lbl">Sistema de Notificaciones</div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="flex:1">
+            <span style="font-size:14px;display:block;font-weight:600">Avisos de Gastos</span>
+            <span style="font-size:11px;color:var(--text3)">Recibe alertas cuando tu pareja cargue un gasto.</span>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="requestNotificationPermission()" style="margin:0;width:auto;padding:8px 12px">Activar</button>
+        </div>
+        <p id="notif-status" style="font-size:10px;margin-top:8px;color:var(--text3)"></p>
+      </div>
+
+      <div class="section-lbl">Preferencias Visuales</div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:14px">Moneda de Consolidación</span>
+          <select id="pref-moneda" onchange="updatePrefMoneda(this.value)" style="width:120px;padding:6px;font-size:13px">
+            <option value="ARS">Pesos (ARS)</option>
+            <option value="USD">Dólares (USD)</option>
+          </select>
+        </div>
+        <p style="font-size:11px;color:var(--text3);margin-top:8px">Toda la app se mostrará en esta moneda usando el tipo de cambio del día.</p>
+      </div>
+
+      <div class="section-lbl">Categorías y Presupuesto</div>
+      <div class="card">
+        <div id="cfg-cats"></div>
+        <div class="add-cat-row" style="flex-direction:column;align-items:stretch">
+          <div style="display:flex;gap:8px">
+            <input type="text" id="new-cat" placeholder="Nombre..." style="flex:2">
+            <input type="color" class="color-pick" id="new-cat-color" value="#1D9E75">
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <input type="text" id="new-cat-ppto" placeholder="Presupuesto mensual $" inputmode="decimal" pattern="[0-9.,]*" style="flex:1">
+            <button class="btn btn-primary btn-sm" onclick="addCategoria()" style="width:42px">+</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-lbl">Configuración de Tarjetas</div>
+      <div class="card">
+        <div id="cfg-tarjetas"></div>
+        <p style="font-size:11px;color:var(--text3);margin-top:10px;margin-bottom:10px">Establece el día de cierre para que la app calcule tus consumos próximos.</p>
+        <div class="add-cat-row" style="flex-direction:column;align-items:stretch;border-top:1px solid var(--border);padding-top:10px">
+          <div style="display:flex;gap:8px">
+            <input type="text" id="new-tarjeta" placeholder="Nombre de Tarjeta..." style="flex:2">
+            <input type="color" class="color-pick" id="new-tarjeta-color" value="#2e77bc">
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <input type="number" id="new-tarjeta-cierre" placeholder="Día de cierre (ej: 15)" min="1" max="31" style="flex:1">
+            <button class="btn btn-primary btn-sm" onclick="addTarjeta()" style="width:42px">+</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-lbl">Mi cuenta</div>
+      <div class="card">
+        <div style="font-size:14px;margin-bottom:4px;font-weight:600" id="cfg-email"></div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:16px" id="cfg-name"></div>
+        <button class="btn btn-danger" onclick="logout()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16,17 21,12 16,7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
+          </svg>
+          Cerrar sesión
+        </button>
+      </div>
+    </div>
+
+    <!-- BALANCE (INGRESOS) -->
+    <div id="p-bal" class="panel">
+      <div class="metrics" id="bal-summary"></div>
+      <div class="card">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Ingresos del Mes</span>
+          <button class="btn btn-primary btn-sm" onclick="showFormIngreso()" style="margin:0">+ Nuevo</button>
+        </div>
+        <div id="bal-ingresos-list"></div>
+      </div>
+      <div class="card" id="bal-form" style="display:none">
+        <div class="card-title">Nuevo Ingreso</div>
+        <div class="fg"><label>Descripción</label><input type="text" id="i-desc" placeholder="Ej: Sueldo, Venta..."></div>
+        <div class="form-2">
+          <div class="fg"><label>Monto</label><input type="text" id="i-monto" placeholder="0.00" inputmode="decimal" pattern="[0-9.,]*"></div>
+          <div class="fg"><label>Moneda</label>
+            <select id="i-moneda">
+              <option value="ARS">ARS</option>
+              <option value="USD">USD</option>
+            </select>
+          </div>
+        </div>
+        <div class="fg"><label>Fecha</label><input type="date" id="i-fecha"></div>
+        <button class="btn btn-primary" id="i-save-btn" onclick="saveIngreso()">Guardar</button>
+        <button class="btn" onclick="hideFormIngreso()">Cancelar</button>
+      </div>
+    </div>
+
+    <!-- AHORRO -->
+    <div id="p-aho" class="panel">
+      <div class="metrics" id="aho-summary"></div>
+      <div class="card">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Ahorros del Mes</span>
+          <button class="btn btn-primary btn-sm" onclick="showFormAhorro()" style="margin:0">+ Nuevo</button>
+        </div>
+        <div id="aho-list"></div>
+      </div>
+      <div class="card" id="aho-form" style="display:none">
+        <div class="card-title">Nuevo Ahorro</div>
+        <div class="fg"><label>Descripción</label><input type="text" id="a-desc" placeholder="Ej: Compra Dólares, Plazo Fijo..."></div>
+        <div class="form-2">
+          <div class="fg"><label>Monto</label><input type="text" id="a-monto" placeholder="0.00" inputmode="decimal" pattern="[0-9.,]*"></div>
+          <div class="fg"><label>Moneda</label>
+            <select id="a-moneda">
+              <option value="ARS">ARS</option>
+              <option value="USD">USD</option>
+            </select>
+          </div>
+        </div>
+        <div class="fg"><label>Fecha</label><input type="date" id="a-fecha"></div>
+        <button class="btn btn-primary" id="a-save-btn" onclick="saveAhorro()">Guardar</button>
+        <button class="btn" onclick="hideFormAhorro()">Cancelar</button>
+      </div>
+    </div>
+
+    <!-- METAS DE AHORRO -->
+    <div id="p-goals" class="panel">
+      <div class="card">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Metas de Ahorro</span>
+          <button class="btn btn-primary btn-sm" onclick="showFormMeta()" style="margin:0">+ Nueva</button>
+        </div>
+        <div id="goals-list"></div>
+      </div>
+      <div class="card" id="goal-form" style="display:none">
+        <div class="card-title">Nueva Meta</div>
+        <div class="fg"><label>¿Qué quieres lograr?</label><input type="text" id="g-desc" placeholder="Ej: Viaje a Europa"></div>
+        <div class="form-2">
+          <div class="fg"><label>Monto Objetivo</label><input type="text" id="g-target" placeholder="0.00" inputmode="decimal" pattern="[0-9.,]*"></div>
+          <div class="fg"><label>Moneda</label>
+            <select id="g-moneda">
+              <option value="ARS">ARS</option>
+              <option value="USD">USD</option>
+            </select>
+          </div>
+        </div>
+        <div class="fg"><label>Monto Actual (Ahorrado)</label><input type="text" id="g-current" value="0" inputmode="decimal" pattern="[0-9.,]*"></div>
+        <button class="btn btn-primary" id="g-save-btn" onclick="saveMeta()">Guardar</button>
+        <button class="btn" onclick="hideFormMeta()">Cancelar</button>
+      </div>
+    </div>
+
+    <!-- MÉTRICAS -->
+    <div id="p-met" class="panel">
+      <div class="card">
+        <div class="card-title">Filtros</div>
+        <div class="fg">
+          <label>Categorías</label>
+          <div class="ms-wrap">
+            <div class="ms-trigger" onclick="toggleMs('ms-met-cat', event)">
+              <span id="ms-met-cat-label">Todas</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6,9 12,15 18,9"/></svg>
+            </div>
+            <div class="ms-dropdown" id="ms-met-cat" style="display:none"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Evolución y Proyección</div>
+        <div class="chart-container" style="height: 280px;">
+          <canvas id="metEvolutionChart"></canvas>
+        </div>
+        <p style="font-size:10px;color:var(--text3);margin-top:8px">La última línea (punteada) representa la proyección basada en el promedio.</p>
+      </div>
+      <div class="section-lbl">Resumen de Métricas</div>
+      <div class="metrics" id="met-stats-grid"></div>
+      <div class="card">
+        <div class="card-title">Top Categorías (Últimos 3 meses)</div>
+        <div id="met-top-cats"></div>
+      </div>
+    </div>
+
+    <!-- MÁS (MENÚ) -->
+    <div id="p-mas" class="panel">
+      <div class="card">
+        <div class="card-title">Más opciones</div>
+        <div class="mas-grid">
+          <button class="mas-btn" onclick="switchTab('aho')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8 0 3 2 4.5V19a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-1.5c1 0 2.5.5 4-1.5 1.5 0 2 1.5 2 1.5 2 1.5 2-1.5V9c0-2.2-1.5-4-3-4z"/>
+              <path d="M2 9v1c0 1.1.9 2 2 2h1"/>
+              <path d="M16 11h.01"/>
+            </svg>
+            <span>Ahorro</span>
+          </button>
+          <button class="mas-btn" onclick="switchTab('bal')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+            </svg>
+            <span>Balance</span>
+          </button>
+          <button class="mas-btn" onclick="switchTab('goals')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+            </svg>
+            <span>Metas</span>
+          </button>
+          <button class="mas-btn" onclick="switchTab('rep')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <line x1="18" y1="20" x2="18" y2="10" />
+              <line x1="12" y1="20" x2="12" y2="4" />
+              <line x1="6" y1="20" x2="6" y2="14" />
+            </svg>
+            <span>Reportes</span>
+          </button>
+          <button class="mas-btn" onclick="switchTab('rec')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9"/>
+            </svg>
+            <span>Fijos</span>
+          </button>
+          <button class="mas-btn" onclick="switchTab('met')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M21.21 15.89A10 10 0 1 1 8 2.83" />
+              <path d="M22 12A10 10 0 0 0 12 2v10z" />
+            </svg>
+            <span>Métricas</span>
+          </button>
+          <button class="mas-btn" onclick="switchTab('cfg')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14M17.66 7.34a6 6 0 0 1 0 9.32M6.34 7.34a6 6 0 0 0 0 9.32" />
+            </svg>
+            <span>Configuración</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- BOTTOM NAV -->
+  <nav class="nav" id="app-nav">
+    <button class="nav-btn active" id="nb-home" onclick="switchTab('home')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="3" width="7" height="7" rx="1" />
+        <rect x="3" y="14" width="7" height="7" rx="1" />
+        <rect x="14" y="14" width="7" height="7" rx="1" />
+      </svg>
+      <span>Resumen</span>
+    </button>
+    <button class="nav-btn" id="nb-hist" onclick="switchTab('hist')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <line x1="8" y1="6" x2="21" y2="6" />
+        <line x1="8" y1="12" x2="21" y2="12" />
+        <line x1="8" y1="18" x2="21" y2="18" />
+        <line x1="3" y1="6" x2="3.01" y2="6" />
+        <line x1="3" y1="12" x2="3.01" y2="12" />
+        <line x1="3" y1="18" x2="3.01" y2="18" />
+      </svg>
+      <span>Historial</span>
+    </button>
+    <button class="nav-btn nav-fab" id="nb-nuevo" onclick="switchTab('nuevo')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <line x1="12" y1="5" x2="12" y2="19" />
+        <line x1="5" y1="12" x2="19" y2="12" />
+      </svg>
+      <span>Nuevo</span>
+    </button>
+    <button class="nav-btn" id="nb-deu" onclick="switchTab('deu')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <rect x="2" y="5" width="20" height="14" rx="2"/>
+        <line x1="2" y1="10" x2="22" y2="10"/>
+      </svg>
+      <span>Deudas</span>
+    </button>
+    <button class="nav-btn" id="nb-mas" onclick="switchTab('mas')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <line x1="3" y1="12" x2="21" y2="12" />
+        <line x1="3" y1="6" x2="21" y2="6" />
+        <line x1="3" y1="18" x2="21" y2="18" />
+      </svg>
+      <span>Más</span>
+    </button>
+  </nav>
+
+  <!-- MODAL PARA FECHA DE PAGO -->
+  <div id="modal-pago" class="modal-overlay" style="display:none">
+    <div class="modal-card">
+      <div class="card-title">Confirmar fecha de pago</div>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:16px" id="m-pago-desc"></p>
+      <div class="fg">
+        <label>Día que se pagó</label>
+        <input type="date" id="m-fecha-pago" onclick="this.showPicker()">
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn btn-primary" style="margin:0;flex:1" onclick="confirmarPagoCuota()">Confirmar</button>
+        <button class="btn" style="margin:0;flex:1" onclick="cerrarModalPago()">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+</body>
+
+</html>
